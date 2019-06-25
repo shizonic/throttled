@@ -28,11 +28,17 @@ elif pidof runit 2>&1 1>/dev/null; then
     cp -R runit/throttled /etc/sv/
 fi
 
+echo "Installing package dependencies..."
+if pidof runit 2>&1 1>/dev/null; then
+    xbps-install -Sy gcc git python3-devel dbus-glib-devel libgirepository-devel cairo-devel python3-wheel pkg-config make
+fi
+
 echo "Building virtualenv..."
 cp -n requirements.txt throttled.py mmio.py "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 /usr/bin/python3 -m venv venv
 . venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 
 if pidof systemd 2>&1 1>/dev/null; then
@@ -42,7 +48,7 @@ if pidof systemd 2>&1 1>/dev/null; then
     systemctl restart throttled.service
 elif pidof runit 2>&1 1>/dev/null; then
     echo "Enabling and starting runit service..."
-    ln -sv /etc/sv/throttled /var/service/
+    ln -sfv /etc/sv/throttled /var/service/
     sv up throttled
 fi
 
