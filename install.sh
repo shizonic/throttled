@@ -3,12 +3,12 @@
 INSTALL_DIR="/usr/lib/throttled"
 
 if pidof systemd 2>&1 1>/dev/null; then
-    systemctl stop throttled.service &>/dev/null
+    systemctl stop throttled.service >/dev/null 2>&1
 elif pidof runit 2>&1 1>/dev/null; then
-    sv down throttled &>/dev/null
+    sv down throttled >/dev/null 2>&1
 fi
 
-mkdir -p "$INSTALL_DIR" &>/dev/null
+mkdir -p "$INSTALL_DIR" >/dev/null 2>&1
 set -e
 
 cd "$(dirname "$0")"

@@ -356,7 +356,7 @@ def load_config():
         for option in ('Update_Rate_s', 'PL1_Tdp_W', 'PL1_Duration_s', 'PL2_Tdp_W', 'PL2_Duration_S'):
             value = config.getfloat(power_source, option, fallback=None)
             if value is not None:
-                value = config.set(power_source, option, str(max(0.1, value)))
+                value = config.set(power_source, option, str(max(0.001, value)))
             elif option == 'Update_Rate_s':
                 fatal('The mandatory "Update_Rate_s" parameter is missing.')
 
@@ -394,6 +394,13 @@ def load_config():
             for plane in VOLTAGE_PLANES:
                 value = config.getfloat(key, plane, fallback=0.0)
                 config.set(key, plane, str(value))
+
+    # Check for CORE/CACHE values mismatch
+    for key in UNDERVOLT_KEYS:
+        if key in config:
+            if config.getfloat(key, 'CORE', fallback=0) != config.getfloat(key, 'CACHE', fallback=0):
+                warning('On Skylake and newer CPUs CORE and CACHE values should match!')
+                break
 
     iccmax_enabled = False
     # check for invalid values (ie. <= 0 or > 0x3FF) in the IccMax settings
@@ -471,7 +478,7 @@ def calc_reg_values(platform_info, config):
                 TW2 = Y | (Z << 5)
 
             regs[power_source]['MSR_PKG_POWER_LIMIT'] = (
-                PL1 | (1 << 15) | (TW1 << 17) | (PL2 << 32) | (1 << 47) | (TW2 << 49)
+                PL1 | (1 << 15) | (1 << 16) | (TW1 << 17) | (PL2 << 32) | (1 << 47) | (TW2 << 49)
             )
         else:
             print('[I] {:s} package power limits are disabled in config.'.format(power_source))
@@ -505,7 +512,9 @@ def power_thread(config, regs, exit_event):
     try:
         mchbar_mmio = MMIO(0xFED159A0, 8)
     except MMIOError:
-        fatal('Unable to open /dev/mem. Try to disable Secure Boot.')
+        warning('Unable to open /dev/mem. TDP override might not work correctly.')
+        warning('Try to disable Secure Boot and/or enable CONFIG_DEVMEM in kernel config.')
+        mchbar_mmio = None
 
     next_hwp_write = 0
     while not exit_event.is_set():
@@ -557,17 +566,18 @@ def power_thread(config, regs, exit_event):
                     write_value, read_value, match
                 )
             )
-        # set MCHBAR register to the same PL1/2 values
-        mchbar_mmio.write32(0, write_value & 0xFFFFFFFF)
-        mchbar_mmio.write32(4, write_value >> 32)
-        if args.debug:
-            read_value = mchbar_mmio.read32(0) | (mchbar_mmio.read32(4) << 32)
-            match = OK if write_value == read_value else ERR
-            print(
-                '[D] MCHBAR PACKAGE_POWER_LIMIT - write {:#x} - read {:#x} - match {}'.format(
-                    write_value, read_value, match
+        if mchbar_mmio is not None:
+            # set MCHBAR register to the same PL1/2 values
+            mchbar_mmio.write32(0, write_value & 0xFFFFFFFF)
+            mchbar_mmio.write32(4, write_value >> 32)
+            if args.debug:
+                read_value = mchbar_mmio.read32(0) | (mchbar_mmio.read32(4) << 32)
+                match = OK if write_value == read_value else ERR
+                print(
+                    '[D] MCHBAR PACKAGE_POWER_LIMIT - write {:#x} - read {:#x} - match {}'.format(
+                        write_value, read_value, match
+                    )
                 )
-            )
 
         wait_t = config.getfloat(power['source'], 'Update_Rate_s')
         enable_hwp_mode = config.getboolean('AC', 'HWP_Mode', fallback=False)
@@ -606,9 +616,10 @@ def check_kernel():
             pass
     if kernel_config is None:
         print('[W] Unable to obtain and validate kernel config.')
+        return
     elif not re.search('CONFIG_DEVMEM=y', kernel_config):
-        fatal('Bad kernel config: you need CONFIG_DEVMEM=y.')
-    elif not re.search('CONFIG_X86_MSR=(y|m)', kernel_config):
+        warning('Bad kernel config: you need CONFIG_DEVMEM=y.')
+    if not re.search('CONFIG_X86_MSR=(y|m)', kernel_config):
         fatal('Bad kernel config: you need CONFIG_X86_MSR builtin or as module.')
 
 
