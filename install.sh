@@ -42,7 +42,7 @@ fi
 # pip install -r requirements.txt
 
 echo "Copying files and prepare simlinks throttled..."
-cp -n throttled.py mmio.py "$INSTALL_DIR"
+cp -f throttled.py mmio.py "$INSTALL_DIR"
 cd /usr/bin
 ln -sf "$INSTALL_DIR/throttled.py" throttled
 
